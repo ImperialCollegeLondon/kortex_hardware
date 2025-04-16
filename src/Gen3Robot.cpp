@@ -238,8 +238,8 @@ Gen3Robot::Gen3Robot(ros::NodeHandle nh)
   finger = gripper_command.mutable_gripper()->add_finger();
   finger->set_finger_identifier(1);
 
-  arm_mode = hardware_interface::JointCommandModes::MODE_VELOCITY;
-  gripper_mode = hardware_interface::JointCommandModes::MODE_VELOCITY;
+  arm_mode = hardware_interface::JointCommandModes::MODE_EFFORT;
+  gripper_mode = hardware_interface::JointCommandModes::MODE_POSITION;
   last_arm_mode = hardware_interface::JointCommandModes::BEGIN;
 
   // Initialize the low pass filter
@@ -451,7 +451,7 @@ void Gen3Robot::sendPositionCommand(const std::vector<double>& command)
 
 void Gen3Robot::sendGripperPositionCommand(const float& command)
 {
-  std::cout << "Sending gripper position command: " << command << std::endl;
+  // std::cout << "Sending gripper position command: " << command << std::endl;
   finger->set_value(command);
   gripper_command.set_mode(k_api::Base::GRIPPER_POSITION);
   try
@@ -522,6 +522,33 @@ void Gen3Robot::sendGripperVelocityCommand(const float& command)
 {
   std::cout << "Sending gripper velocity command: " << command << std::endl;
   gripper_command.set_mode(k_api::Base::GRIPPER_SPEED);
+  finger->set_value(command);
+  try
+  {
+    mBase->SendGripperCommand(gripper_command);
+  }
+  catch (k_api::KDetailedException& ex)
+  {
+    std::cout << "Kortex exception: " << ex.what() << std::endl;
+
+    std::cout << "Error sub-code: "
+              << k_api::SubErrorCodes_Name(k_api::SubErrorCodes(
+                     (ex.getErrorInfo().getError().error_sub_code())))
+              << std::endl;
+  }
+  catch (std::runtime_error& ex2)
+  {
+    std::cout << "runtime error: " << ex2.what() << std::endl;
+  }
+  catch (...)
+  {
+    std::cout << "Unknown error." << std::endl;
+  }
+}
+
+void Gen3Robot::sendGripperEffortCommand(const float& command)
+{ 
+  gripper_command.set_mode(k_api::Base::GRIPPER_FORCE);
   finger->set_value(command);
   try
   {
@@ -737,12 +764,16 @@ void Gen3Robot::sendCurrentCommand(std::vector<double>& command)
   catch (std::runtime_error& ex2)
   {
     std::cout << "Error: " << ex2.what() << std::endl;
+  } catch (...) {
+    std::cout << "Unknown exception inside 'sendCurrentCommand' caught" << std::endl;
   }
   last = GetTickUs();
 }
 
 void Gen3Robot::sendGripperLowLevelCommand(const float& command)
 {
+  // std::cout << "Sending gripper low level command: " << command
+  //          << std::endl;
   gripper_position_error = (command - pos[num_full_dof - 1]) * 100.0;
 
   if (fabs(gripper_position_error) < 1.5)
@@ -817,7 +848,7 @@ void Gen3Robot::write(void)
       // low level servoing mode
       // TODO: Add support for input velocity and force limits
       // See: api_cpp/examples/01-gripper_low_level_command.cpp
-      sendGripperLowLevelCommand(cmd_pos[num_full_dof - 1]);
+      sendGripperLowLevelCommand(cmd_eff[num_full_dof - 1]);
     }
     else
     {
@@ -827,6 +858,9 @@ void Gen3Robot::write(void)
           sendGripperVelocityCommand(cmd_vel[num_full_dof - 1]);
           break;
         case hardware_interface::JointCommandModes::MODE_POSITION:
+          sendGripperPositionCommand(cmd_pos[num_full_dof - 1]);
+          break;
+        case hardware_interface::JointCommandModes::MODE_EFFORT:
           sendGripperPositionCommand(cmd_pos[num_full_dof - 1]);
           break;
         default:
